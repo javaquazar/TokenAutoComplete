@@ -29,6 +29,7 @@ import android.view.MotionEvent;
 import android.view.View;
 import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputConnection;
+import android.view.inputmethod.InputConnectionWrapper;
 import android.widget.Filter;
 import android.widget.ListView;
 import android.widget.MultiAutoCompleteTextView;
@@ -47,10 +48,16 @@ import java.util.List;
  *
  * @author mgod
  */
-public abstract class TokenCompleteTextView extends MultiAutoCompleteTextView implements TextView.OnEditorActionListener {
+public abstract class TokenCompleteTextView extends MultiAutoCompleteTextView 
+    implements TextView.OnEditorActionListener {
+    public enum InsertionStyle {
+        Replace,
+        BeforeFilter
+    }
     //When the token is deleted...
     public enum TokenDeleteStyle {
         _Parent, //...do the parent behavior, not recommended
+        DontDelete,
         Clear, //...clear the underlying text
         PartialCompletion, //...return the original text used for completion
         ToString //...replace the token with toString of the token object
@@ -68,6 +75,7 @@ public abstract class TokenCompleteTextView extends MultiAutoCompleteTextView im
     private TokenListener listener;
     private TokenSpanWatcher spanWatcher;
     private ArrayList<Object> objects;
+    private InsertionStyle insertionStyle = InsertionStyle.Replace;
     private TokenDeleteStyle deletionStyle = TokenDeleteStyle._Parent;
     private TokenClickStyle tokenClickStyle = TokenClickStyle.None;
     private String prefix = "";
@@ -119,7 +127,9 @@ public abstract class TokenCompleteTextView extends MultiAutoCompleteTextView im
             @Override
             public CharSequence filter(CharSequence source, int start, int end, Spanned dest, int dstart, int dend) {
                 //Detect single commas, remove them and complete the current token instead
-                if (source.length() == 1 && source.charAt(0) == ',') {
+                if (insertionStyle == InsertionStyle.Replace && 
+                    source.length() == 1 && 
+                    source.charAt(0) == ',') {
                     performCompletion();
                     return "";
                 }
@@ -127,6 +137,20 @@ public abstract class TokenCompleteTextView extends MultiAutoCompleteTextView im
                 //We need to not do anything when we would delete the prefix
                 if (dstart < prefix.length() && dend == prefix.length()) {
                     return prefix.substring(dstart, dend);
+                }
+
+                if (deletionStyle == TokenDeleteStyle.DontDelete) {
+                    if (end - start < dend - dstart) {
+                        // Account for space in front of span
+                        if (dstart > 1) {
+                            dstart = dstart - 1;
+                            TokenImageSpan[] spans = getText().getSpans(dstart, dend, TokenImageSpan.class);
+                            android.util.Log.d("TokenCompleteTextView", "Span count: " + spans.length);
+                            if (spans.length > 0) {
+                                return dest.subSequence(dstart + 1, dend);
+                            }
+                        }
+                    }
                 }
                 return null;
             }
@@ -170,6 +194,10 @@ public abstract class TokenCompleteTextView extends MultiAutoCompleteTextView im
     public void setTokenizer(Tokenizer t) {
         super.setTokenizer(t);
         tokenizer = t;
+    }
+
+    public void setInsertionStyle(InsertionStyle iStyle) {
+        insertionStyle = iStyle;
     }
 
     public void setDeletionStyle(TokenDeleteStyle dStyle) {
@@ -323,6 +351,7 @@ public abstract class TokenCompleteTextView extends MultiAutoCompleteTextView im
 
     @Override
     public boolean onKeyUp(int keyCode, KeyEvent event) {
+        android.util.Log.d("TokenCompleteTextView", "HERHEHREHR");
         boolean handled = super.onKeyUp(keyCode, event);
         if (shouldFocusNext) {
             shouldFocusNext = false;
@@ -333,6 +362,7 @@ public abstract class TokenCompleteTextView extends MultiAutoCompleteTextView im
 
     @Override
     public boolean onKeyDown(int keyCode, KeyEvent event) {
+        android.util.Log.d("TokenCompleteTextView", "HERHEHRE");
         boolean handled = false;
         switch (keyCode) {
             case KeyEvent.KEYCODE_TAB:
@@ -361,7 +391,7 @@ public abstract class TokenCompleteTextView extends MultiAutoCompleteTextView im
                             break;
                         }
                     }
-                }
+                } 
         }
 
         return handled || super.onKeyDown(keyCode, event);
@@ -369,7 +399,7 @@ public abstract class TokenCompleteTextView extends MultiAutoCompleteTextView im
 
     @Override
     public boolean onEditorAction(TextView view, int action, KeyEvent keyEvent) {
-        if (action == EditorInfo.IME_ACTION_DONE) {
+        if (action == EditorInfo.IME_ACTION_DONE && insertionStyle != InsertionStyle.BeforeFilter) {
             handleDone();
             return true;
         }
@@ -607,9 +637,13 @@ public abstract class TokenCompleteTextView extends MultiAutoCompleteTextView im
                         //...so we need to put the object in in front of the hint
                         offset = prefix.length();
                         editable.insert(offset, ssb);
+                    } else if (insertionStyle == InsertionStyle.BeforeFilter) {
+                        offset = tokenizer.findTokenStart(editable, offset);
+                        editable.insert(offset, ssb);
                     } else {
                         editable.append(ssb);
                     }
+
                     editable.setSpan(tokenSpan, offset, offset + ssb.length() - 1, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
 
                     //In some cases, particularly the 1 to nth objects when not focused and restoring
@@ -660,6 +694,10 @@ public abstract class TokenCompleteTextView extends MultiAutoCompleteTextView im
     }
 
     private void removeSpan(TokenImageSpan span) {
+        InputFilter[] filters = getFilters();
+        if (deletionStyle == TokenDeleteStyle.DontDelete) {
+            setFilters(new InputFilter[0]);
+        }
         Editable text = getText();
         if (text == null) return;
 
@@ -672,6 +710,10 @@ public abstract class TokenCompleteTextView extends MultiAutoCompleteTextView im
         }
         //Add 1 to the end because we put a " " at the end of the spans when adding them
         text.delete(text.getSpanStart(span), text.getSpanEnd(span) + 1);
+
+        if (deletionStyle == TokenDeleteStyle.DontDelete) {
+            setFilters(filters);
+        }
     }
 
     private void updateHint() {
