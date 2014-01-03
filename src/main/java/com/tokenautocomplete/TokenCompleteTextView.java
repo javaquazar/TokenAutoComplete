@@ -27,6 +27,7 @@ import android.util.TypedValue;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.View;
+import android.view.inputmethod.InputMethodManager;
 import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputConnection;
 import android.view.inputmethod.InputConnectionWrapper;
@@ -257,6 +258,18 @@ public abstract class TokenCompleteTextView extends MultiAutoCompleteTextView
      */
     abstract protected Object defaultObject(String completionText);
 
+    public void clearCompletionText() {
+        if ("".equals(currentCompletionText())) return; //Can't have any text if the hint is visible
+
+        Editable editable = getText();
+        int end = getSelectionEnd();
+        int start = tokenizer.findTokenStart(editable, end);
+        if (start < prefix.length()) {
+            start = prefix.length();
+        }
+        setText(editable.subSequence(0, start));
+    }
+
     protected String currentCompletionText() {
         if (hintVisible) return ""; //Can't have any text if the hint is visible
 
@@ -351,7 +364,6 @@ public abstract class TokenCompleteTextView extends MultiAutoCompleteTextView
 
     @Override
     public boolean onKeyUp(int keyCode, KeyEvent event) {
-        android.util.Log.d("TokenCompleteTextView", "HERHEHREHR");
         boolean handled = super.onKeyUp(keyCode, event);
         if (shouldFocusNext) {
             shouldFocusNext = false;
@@ -362,7 +374,6 @@ public abstract class TokenCompleteTextView extends MultiAutoCompleteTextView
 
     @Override
     public boolean onKeyDown(int keyCode, KeyEvent event) {
-        android.util.Log.d("TokenCompleteTextView", "HERHEHRE");
         boolean handled = false;
         switch (keyCode) {
             case KeyEvent.KEYCODE_TAB:
@@ -553,9 +564,13 @@ public abstract class TokenCompleteTextView extends MultiAutoCompleteTextView
     @Override
     public void onFocusChanged(boolean hasFocus, int direction, Rect previous) {
         super.onFocusChanged(hasFocus, direction, previous);
-
+        if (hasFocus) showKeyboard(this);
         handleFocus(hasFocus);
+    }
 
+    protected void showKeyboard(View aView) {
+        InputMethodManager inputMgr = (InputMethodManager) aView.getContext().getSystemService(Context.INPUT_METHOD_SERVICE);
+        inputMgr.showSoftInput(aView, InputMethodManager.SHOW_IMPLICIT);
     }
 
     @Override
